@@ -3,65 +3,53 @@ declare(strict_types=1);
 
 namespace cheinisch\MarkdownEditor;
 
-/**
- * MarkdownEditor
- *
- * Rendert ein HTML-Snippet für den Editor. Die CSS/JS-Assets werden
- * standardmäßig unter /vendor/cheinisch/markdown-editor/public/... erwartet.
- *
- * Beispiel (plain PHP):
- *   require __DIR__ . '/vendor/autoload.php';
- *   echo \cheinisch\MarkdownEditor\MarkdownEditor::render([
- *     'asset_base_url' => '/vendor/cheinisch/markdown-editor', // optional, ist Default
- *   ]);
- *
- * Konfig-Optionen:
- * - asset_base_url: Basis-URL zu deinem Paket (Default: /vendor/cheinisch/markdown-editor)
- * - css_href:       Exakte URL zur CSS-Datei (überschreibt asset_base_url)
- * - js_src:         Exakte URL zur JS-Datei  (überschreibt asset_base_url)
- * - include_libs:   Ob marked + DOMPurify per CDN geladen werden (Default: true)
- * - marked_cdn:     CDN-URL für marked (Default: jsDelivr)
- * - purify_cdn:     CDN-URL für DOMPurify (Default: jsDelivr)
- */
 final class MarkdownEditor
 {
     /**
+     * CSS im <head> einbinden.
+     *
      * @param array{
      *   asset_base_url?: string,
-     *   css_href?: string,
+     *   css_href?: string
+     * } $opts
+     */
+    public static function renderHeadAssets(array $opts = []): string
+    {
+        [$cssHref, ] = self::resolveAssetUrls($opts);
+        return '<link rel="stylesheet" href="' . self::esc($cssHref) . '">';
+    }
+
+    /**
+     * JS am Ende des <body> einbinden (marked, DOMPurify, script.js).
+     *
+     * @param array{
+     *   asset_base_url?: string,
      *   js_src?: string,
      *   include_libs?: bool,
      *   marked_cdn?: string,
      *   purify_cdn?: string
      * } $opts
      */
-    public static function render(array $opts = []): string
+    public static function renderFootAssets(array $opts = []): string
     {
-        // Basis-URL (öffentlich erreichbar)
-        $base = rtrim($opts['asset_base_url'] ?? '/vendor/cheinisch/markdown-editor', '/');
+        [, $jsSrc, $libs] = self::resolveAssetUrls($opts);
+        $tags = '';
 
-        // Standardpfade unterhalb des Paket-Ordners /public
-        $cssHref = $opts['css_href'] ?? ($base . '/public/md-editor.css');
-        $jsSrc   = $opts['js_src']   ?? ($base . '/public/md-editor.js');
-
-        // CDN-Libs (kannst du deaktivieren oder überschreiben)
-        $includeLibs = array_key_exists('include_libs', $opts) ? (bool)$opts['include_libs'] : true;
-        $markedCdn   = $opts['marked_cdn'] ?? 'https://cdn.jsdelivr.net/npm/marked/marked.min.js';
-        $purifyCdn   = $opts['purify_cdn'] ?? 'https://cdn.jsdelivr.net/npm/dompurify@3.1.7/dist/purify.min.js';
-
-        // HEAD (CSS)
-        $head  = '<link rel="stylesheet" href="' . self::esc($cssHref) . '">';
-
-        // optionale CDN-Skripte
-        $libTags = '';
-        if ($includeLibs) {
-            $libTags =
-                '<script src="' . self::esc($markedCdn) . '"></script>' . PHP_EOL .
-                '<script src="' . self::esc($purifyCdn) . '"></script>';
+        if ($libs['include_libs']) {
+            $tags .= '<script src="' . self::esc($libs['marked_cdn']) . '"></script>' . PHP_EOL;
+            $tags .= '<script src="' . self::esc($libs['purify_cdn']) . '"></script>' . PHP_EOL;
         }
+        $tags .= '<script src="' . self::esc($jsSrc) . '"></script>';
 
-        // BODY-Markup (Editor + Preview, ohne Header)
-        $body = <<<'HTML'
+        return $tags;
+    }
+
+    /**
+     * Editor-Markup (ohne Header) – kommt in den <body> dorthin, wo der Editor stehen soll.
+     */
+    public static function render(): string
+    {
+        return <<<'HTML'
 <div class="wrap">
   <div class="grid" id="grid">
     <!-- Editor-Card -->
@@ -102,13 +90,88 @@ final class MarkdownEditor
   <div class="footer">Tipp: Inhalte werden automatisch lokal gespeichert.</div>
 </div>
 HTML;
+    }
 
-        // App-Script + optional CDN
-        $tail =
-            $libTags . PHP_EOL .
-            '<script src="' . self::esc($jsSrc) . '"></script>';
+    /* ------------------------------------------------------------------ *
+     * Interna
+     * ------------------------------------------------------------------ */
 
-        return $head . PHP_EOL . $body . PHP_EOL . $tail;
+    /**
+     * Liefert [cssHref, jsSrc, libs].
+     *
+     * @param array{
+     *   asset_base_url?: string,
+     *   css_href?: string,
+     *   js_src?: string,
+     *   include_libs?: bool,
+     *   marked_cdn?: string,
+     *   purify_cdn?: string
+     * } $opts
+     * @return array{0:string,1:string,2:array{include_libs:bool,marked_cdn:string,purify_cdn:string}}
+     */
+    private static function resolveAssetUrls(array $opts): array
+    {
+        // Defaults für Libraries
+        $libs = [
+            'include_libs' => array_key_exists('include_libs', $opts) ? (bool)$opts['include_libs'] : true,
+            'marked_cdn'   => $opts['marked_cdn'] ?? 'https://cdn.jsdelivr.net/npm/marked/marked.min.js',
+            'purify_cdn'   => $opts['purify_cdn'] ?? 'https://cdn.jsdelivr.net/npm/dompurify@3.1.7/dist/purify.min.js',
+        ];
+
+        // Explizite URLs > Auto-Detect > Fallback
+        $cssHref = $opts['css_href'] ?? null;
+        $jsSrc   = $opts['js_src']   ?? null;
+
+        if ($cssHref === null || $jsSrc === null) {
+            $publicUrl = null;
+
+            // 1) Wenn asset_base_url angegeben: daraus bauen
+            if (!empty($opts['asset_base_url'])) {
+                $publicUrl = rtrim((string)$opts['asset_base_url'], '/') . '/public';
+            } else {
+                // 2) Sonst: automatisch erkennen
+                $publicUrl = self::detectPublicUrl();
+            }
+
+            if ($publicUrl !== null) {
+                $cssHref = $cssHref ?? ($publicUrl . '/css/style.css');
+                $jsSrc   = $jsSrc   ?? ($publicUrl . '/js/script.js');
+            }
+        }
+
+        // 3) Letzter Fallback (sinnvolle Default-URL auf Basis des Vendor-Namens)
+        if ($cssHref === null) { $cssHref = '/vendor/cheinisch/markdown-editor/public/css/style.css'; }
+        if ($jsSrc   === null) { $jsSrc   = '/vendor/cheinisch/markdown-editor/public/js/script.js'; }
+
+        return [$cssHref, $jsSrc, $libs];
+    }
+
+    /**
+     * Versucht, aus dem Dateisystempfad des Pakets die öffentliche URL
+     * zum Unterordner "public" zu berechnen.
+     *
+     * @return string|null  z. B. "/vendor/cheinisch/markdown-editor/public" oder null
+     */
+    private static function detectPublicUrl(): ?string
+    {
+        $classFile = (new \ReflectionClass(self::class))->getFileName();
+        if (!$classFile) { return null; }
+
+        $srcDir      = \dirname($classFile);                // …/markdown-editor/src
+        $packageRoot = \dirname($srcDir);                   // …/markdown-editor
+        $publicDir   = $packageRoot . DIRECTORY_SEPARATOR . 'public';
+
+        $publicPath = str_replace('\\', '/', $publicDir);
+        $docRoot    = isset($_SERVER['DOCUMENT_ROOT']) ? str_replace('\\', '/', $_SERVER['DOCUMENT_ROOT']) : '';
+
+        if ($docRoot !== '' && str_starts_with($publicPath, rtrim($docRoot, '/'))) {
+            $relative = substr($publicPath, strlen(rtrim($docRoot, '/')));
+            if ($relative === '' || $relative[0] !== '/') {
+                $relative = '/' . $relative;
+            }
+            return $relative; // z. B. "/vendor/cheinisch/markdown-editor/public"
+        }
+        return null;
     }
 
     /** HTML-escape Helper */
