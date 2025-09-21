@@ -134,14 +134,14 @@ HTML;
             }
 
             if ($publicUrl !== null) {
-                $cssHref = $cssHref ?? ($publicUrl . '/css/style.css');
-                $jsSrc   = $jsSrc   ?? ($publicUrl . '/js/script.js');
+                $cssHref = $cssHref ?? ($publicUrl . '/md-editor.css');
+                $jsSrc   = $jsSrc   ?? ($publicUrl . '/md-editor.js');
             }
         }
 
         // 3) Letzter Fallback (sinnvolle Default-URL auf Basis des Vendor-Namens)
-        if ($cssHref === null) { $cssHref = '/vendor/cheinisch/markdown-editor/public/css/style.css'; }
-        if ($jsSrc   === null) { $jsSrc   = '/vendor/cheinisch/markdown-editor/public/js/script.js'; }
+        if ($cssHref === null) { $cssHref = '/vendor/cheinisch/markdown-editor/public/md-editor.css'; }
+        if ($jsSrc   === null) { $jsSrc   = '/vendor/cheinisch/markdown-editor/public/md-editor.js'; }
 
         return [$cssHref, $jsSrc, $libs];
     }
