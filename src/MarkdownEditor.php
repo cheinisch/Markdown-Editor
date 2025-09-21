@@ -28,8 +28,8 @@ final class MarkdownEditor
     {
         // Basis-Optionen
         $base     = rtrim($opts['asset_base_url'] ?? '/vendor/markdown-editor', '/');
-        $cssHref  = $opts['css_href'] ?? ($base . '/css/md-editor.css');
-        $jsSrc    = $opts['js_src']   ?? ($base . '/js/md-editor.js');
+        $cssHref  = $opts['css_href'] ?? ($base . '/public/md-editor.css');
+        $jsSrc    = $opts['js_src']   ?? ($base . '/public/md-editor.js');
 
         // CDNs für marked + DOMPurify (kann abgeschaltet oder überschrieben werden)
         $includeLibs = array_key_exists('include_libs', $opts) ? (bool)$opts['include_libs'] : true;
