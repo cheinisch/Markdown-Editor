@@ -5,7 +5,7 @@
   "license": "MIT",
   "autoload": {
     "psr-4": {
-      "Vendor\\MarkdownEditor\\": "src/"
+      "cheinisch\\MarkdownEditor\\": "src/"
     }
   },
   "require": {
