@@ -1,16 +1,27 @@
 <?php
+declare(strict_types=1);
+
 namespace cheinisch\MarkdownEditor;
 
 /**
  * MarkdownEditor
  *
- * Rendert ein eigenständiges HTML-Snippet für den Editor.
- * Erwartet, dass die Assets unter /css/style.css und /js/script.js liegen (überschreibbar).
+ * Rendert ein HTML-Snippet für den Editor. Die CSS/JS-Assets werden
+ * standardmäßig unter /vendor/cheinisch/markdown-editor/public/... erwartet.
  *
- * Beispiel:
- * echo \Vendor\MarkdownEditor\MarkdownEditor::render([
- *   'asset_base_url' => '/vendor/markdown-editor', // z. B. nach "vendor:publish"
- * ]);
+ * Beispiel (plain PHP):
+ *   require __DIR__ . '/vendor/autoload.php';
+ *   echo \cheinisch\MarkdownEditor\MarkdownEditor::render([
+ *     'asset_base_url' => '/vendor/cheinisch/markdown-editor', // optional, ist Default
+ *   ]);
+ *
+ * Konfig-Optionen:
+ * - asset_base_url: Basis-URL zu deinem Paket (Default: /vendor/cheinisch/markdown-editor)
+ * - css_href:       Exakte URL zur CSS-Datei (überschreibt asset_base_url)
+ * - js_src:         Exakte URL zur JS-Datei  (überschreibt asset_base_url)
+ * - include_libs:   Ob marked + DOMPurify per CDN geladen werden (Default: true)
+ * - marked_cdn:     CDN-URL für marked (Default: jsDelivr)
+ * - purify_cdn:     CDN-URL für DOMPurify (Default: jsDelivr)
  */
 final class MarkdownEditor
 {
@@ -21,37 +32,36 @@ final class MarkdownEditor
      *   js_src?: string,
      *   include_libs?: bool,
      *   marked_cdn?: string,
-     *   purify_cdn?: string,
+     *   purify_cdn?: string
      * } $opts
      */
     public static function render(array $opts = []): string
     {
-        // Basis-Optionen
-        $base     = rtrim($opts['asset_base_url'] ?? '/vendor/markdown-editor', '/');
-        $cssHref  = $opts['css_href'] ?? ($base . '/public/md-editor.css');
-        $jsSrc    = $opts['js_src']   ?? ($base . '/public/md-editor.js');
+        // Basis-URL (öffentlich erreichbar)
+        $base = rtrim($opts['asset_base_url'] ?? '/vendor/cheinisch/markdown-editor', '/');
 
-        // CDNs für marked + DOMPurify (kann abgeschaltet oder überschrieben werden)
+        // Standardpfade unterhalb des Paket-Ordners /public
+        $cssHref = $opts['css_href'] ?? ($base . '/public/css/style.css');
+        $jsSrc   = $opts['js_src']   ?? ($base . '/public/js/script.js');
+
+        // CDN-Libs (kannst du deaktivieren oder überschreiben)
         $includeLibs = array_key_exists('include_libs', $opts) ? (bool)$opts['include_libs'] : true;
         $markedCdn   = $opts['marked_cdn'] ?? 'https://cdn.jsdelivr.net/npm/marked/marked.min.js';
         $purifyCdn   = $opts['purify_cdn'] ?? 'https://cdn.jsdelivr.net/npm/dompurify@3.1.7/dist/purify.min.js';
 
-        // Kopf (CSS)
-        $head = <<<HTML
-<link rel="stylesheet" href="{$this->esc($cssHref)}">
-HTML;
+        // HEAD (CSS)
+        $head  = '<link rel="stylesheet" href="' . self::esc($cssHref) . '">';
 
-        // Optional: JS-Libs (CDN)
+        // optionale CDN-Skripte
         $libTags = '';
         if ($includeLibs) {
-            $libTags = <<<HTML
-<script src="{$this->esc($markedCdn)}"></script>
-<script src="{$this->esc($purifyCdn)}"></script>
-HTML;
+            $libTags =
+                '<script src="' . self::esc($markedCdn) . '"></script>' . PHP_EOL .
+                '<script src="' . self::esc($purifyCdn) . '"></script>';
         }
 
-        // Body-Markup (entspricht der letzten index.html ohne Header)
-        $body = <<<HTML
+        // BODY-Markup (Editor + Preview, ohne Header)
+        $body = <<<'HTML'
 <div class="wrap">
   <div class="grid" id="grid">
     <!-- Editor-Card -->
@@ -93,18 +103,15 @@ HTML;
 </div>
 HTML;
 
-        // App-Script
-        $script = <<<HTML
-{$libTags}
-<script src="{$this->esc($jsSrc)}"></script>
-HTML;
+        // App-Script + optional CDN
+        $tail =
+            $libTags . PHP_EOL .
+            '<script src="' . self::esc($jsSrc) . '"></script>';
 
-        return $head . PHP_EOL . $body . PHP_EOL . $script;
+        return $head . PHP_EOL . $body . PHP_EOL . $tail;
     }
 
-    /**
-     * Kleine HTML-Escape-Hilfe.
-     */
+    /** HTML-escape Helper */
     private static function esc(string $s): string
     {
         return htmlspecialchars($s, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
