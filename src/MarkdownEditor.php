@@ -41,8 +41,8 @@ final class MarkdownEditor
         $base = rtrim($opts['asset_base_url'] ?? '/vendor/cheinisch/markdown-editor', '/');
 
         // Standardpfade unterhalb des Paket-Ordners /public
-        $cssHref = $opts['css_href'] ?? ($base . '/public/css/style.css');
-        $jsSrc   = $opts['js_src']   ?? ($base . '/public/js/script.js');
+        $cssHref = $opts['css_href'] ?? ($base . '/public/md-editor.css');
+        $jsSrc   = $opts['js_src']   ?? ($base . '/public/md-editor.js');
 
         // CDN-Libs (kannst du deaktivieren oder überschreiben)
         $includeLibs = array_key_exists('include_libs', $opts) ? (bool)$opts['include_libs'] : true;
