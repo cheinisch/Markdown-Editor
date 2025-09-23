@@ -13,7 +13,7 @@ It’s a simple Markdown editor (HTML/JS/CSS) packaged for easy embedding in PHP
 
 ## Usage
 
-Simple PHP HTML Layout wtih required functions
+Simple PHP HTML Layout with required functions
 ```
 <?php
 require __DIR__ . '/vendor/autoload.php';
