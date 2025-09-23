@@ -1,6 +1,6 @@
 {
   "name": "cheinisch/markdown-editor",
-  "description": "Einfacher Markdown-Editor (HTML+JS+CSS) als Composer-Paket",
+  "description": "It's a simple Markdown editor (HTML/JS/CSS) packaged for easy embedding in PHP apps via Composer.",
   "type": "library",
   "license": "MIT",
   "autoload": {
