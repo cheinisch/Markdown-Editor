@@ -13,6 +13,26 @@ It’s a simple Markdown editor (HTML/JS/CSS) packaged for easy embedding in PHP
 
 ## Usage
 
+### Required functions
+
+Import the class
+`use cheinisch\MarkdownEditor\MarkdownEditor;`
+
+Loading CSS in the head
+```
+<?= MarkdownEditor::renderHeadAssets(); ?>
+```
+Loading JS in the footer area
+```
+<?= MarkdownEditor::renderFootAssets(); ?>
+```
+Loading the editor in the main area
+```
+<?= MarkdownEditor::render(); ?>
+```
+
+### Demo Page
+
 Simple PHP HTML Layout with required functions
 ```
 <?php
