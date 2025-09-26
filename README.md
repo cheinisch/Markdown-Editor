@@ -16,7 +16,9 @@ It’s a simple Markdown editor (HTML/JS/CSS) packaged for easy embedding in PHP
 ### Required functions
 
 Import the class
-`use cheinisch\MarkdownEditor\MarkdownEditor;`
+```
+use cheinisch\MarkdownEditor\MarkdownEditor;
+```
 
 Loading CSS in the head
 ```
