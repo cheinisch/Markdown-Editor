@@ -9,11 +9,22 @@
     }
   },
   "require": {
-    "php": ">=8.0"
+    "php": ">=8.0",
+    "composer-plugin-api": "^2.0"
+  },
+  "require-dev": {
+    "composer/composer": "^2.0"
+  },
+  "scripts": {
+    "post-install-cmd": "cheinisch\\MarkdownEditor\\Composer\\ScriptHandler::publishAssets",
+    "post-update-cmd":  "cheinisch\\MarkdownEditor\\Composer\\ScriptHandler::publishAssets"
   },
   "extra": {
     "branch-alias": {
       "dev-main": "1.x-dev"
+    },
+    "markdown-editor": {
+      "public-dir": "public/vendor/markdown-editor"
     }
   }
 }
