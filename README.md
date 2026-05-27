@@ -15,8 +15,7 @@ A simple Markdown editor (HTML/JS/CSS) for easy embedding in PHP apps.
 ## Installation
 
 Copy `src/MarkdownEditor.php` and `public/markdown-editor.js` into your project — no further dependencies required.
-or
-install via composer `composer require cheinisch/markdown-editor`
+
 
 ```
 your-project/
@@ -25,6 +24,9 @@ your-project/
 └── src/
     └── MarkdownEditor.php
 ```
+### Composer
+
+install via composer `composer require cheinisch/markdown-editor`
 
 ## Usage
 
