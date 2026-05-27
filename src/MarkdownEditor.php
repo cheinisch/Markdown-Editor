@@ -5,19 +5,16 @@ namespace cheinisch\MarkdownEditor;
 
 final class MarkdownEditor
 {
-    /**
-     * Alle verfügbaren Button-Schlüssel in ihrer Standard-Reihenfolge.
-     */
     private const ALL_BUTTONS = [
         'bold', 'italic', 'underline',
-        'h1', 'list', 'quote', 'code', 'link',
+        'h1', 'list', 'quote', 'code', 'link', 'table',
         'library',
     ];
 
-    /** Gruppe 1 (Formatierung): Trennlinie wird nur gerendert, wenn mind. ein Button
-     *  aus Gruppe 1 UND mind. einer aus Gruppe 2 sichtbar ist. */
     private const GROUP1 = ['bold', 'italic', 'underline'];
-    private const GROUP2 = ['h1', 'list', 'quote', 'code', 'link'];
+    private const GROUP2 = ['h1', 'list', 'quote', 'code', 'link', 'table'];
+
+    // ── Public API ───────────────────────────────────────────────────────────
 
     public static function renderHead(): string
     {
@@ -31,34 +28,38 @@ HTML;
     /**
      * Rendert den Markdown-Editor.
      *
-     * @param array{buttons?: list<string>, localStorage?: bool|string} $options
-     *   - buttons:      Welche Buttons angezeigt werden sollen.
-     *                   Mögliche Werte: 'bold', 'italic', 'underline',
-     *                   'h1', 'list', 'quote', 'code', 'link', 'library'.
-     *                   Standard: alle Buttons.
-     *   - localStorage: Inhalt automatisch in localStorage speichern.
-     *                   true   → Default-Key 'markdown-editor-content'
-     *                   string → Eigener Key
-     *                   false  → deaktiviert (Standard)
-     *   - field:        ID eines versteckten <textarea>-Feldes unterhalb des Editors.
-     *                   Der Inhalt wird bei jeder Eingabe synchronisiert und beim
-     *                   Laden der Seite von dort wiederhergestellt (z. B. für Formulare).
+     * @param array{
+     *   buttons?: list<string>,
+     *   localStorage?: bool|string,
+     *   field?: string,
+     *   library?: list<array{name: string, path: string, upload?: bool}>,
+     * } $options
+     *
+     *   - buttons:      Sichtbare Toolbar-Buttons. Mögliche Werte:
+     *                   'bold', 'italic', 'underline', 'h1', 'list',
+     *                   'quote', 'code', 'link', 'library'. Standard: alle.
+     *
+     *   - localStorage: Inhalt in localStorage speichern.
+     *                   true   → Key 'markdown-editor-content'
+     *                   string → Eigener Key | false → aus (Standard)
+     *
+     *   - field:        ID einer <textarea> zum Synchronisieren.
+     *                   Existiert sie bereits im DOM, wird sie genutzt;
+     *                   sonst legt der Editor sie selbst an.
+     *
+     *   - library:      Verzeichnisse für die Bildbibliothek.
+     *                   path darf relativ zur einbindenden PHP-Datei sein.
+     *                   upload: true → Drag & Drop + Upload-Button aktiv.
      *
      * Beispiele:
      *   <?= MarkdownEditor::render() ?>
      *   <?= MarkdownEditor::render(['buttons' => ['bold', 'italic', 'link']]) ?>
-     *   <?= MarkdownEditor::render(['localStorage' => true]) ?>
      *   <?= MarkdownEditor::render(['localStorage' => 'blog-editor']) ?>
      *   <?= MarkdownEditor::render(['field' => 'post_content']) ?>
      *   <?= MarkdownEditor::render(['library' => [
      *       ['name' => 'Alle Bilder', 'path' => '/api/images'],
-     *       ['name' => 'Blog',        'path' => '/api/images/blog', 'upload' => true],
-     *       ['name' => 'Produkte',    'path' => '/api/images/products'],
+     *       ['name' => 'Uploads',     'path' => '../../uploads', 'upload' => true],
      *   ]]) ?>
-     *
-     * Library-Endpunkt erwartet:
-     *   GET  {path}  →  JSON: [{ src, name, width?, height? }, ...]
-     *   POST {path}  →  FormData mit 'file' (nur bei upload: true)
      */
     public static function render(array $options = []): string
     {
@@ -74,7 +75,10 @@ HTML;
             ? $options['field']
             : null;
 
-        $libraryDirs = $options['library'] ?? [];
+        // Pfade relativ zur einbindenden Datei auflösen
+        $callerFile  = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 1)[0]['file'];
+        $libraryDirs = self::resolveLibraryPaths($options['library'] ?? [], $callerFile);
+        $maxUpload   = self::maxUploadSize();
 
         $show = static fn(string $key): bool => isset($visible[$key]);
 
@@ -125,6 +129,31 @@ HTML;
                     <button type="button" id="btn-link" data-action="link" class="rounded-lg px-3 py-2 text-sm hover:bg-white">Link</button>
                     <?php endif; ?>
 
+                    <?php if ($show('table')): ?>
+                    <div class="relative">
+                        <button type="button" id="btn-table" class="rounded-lg px-3 py-2 text-sm hover:bg-white">Tabelle</button>
+                        <div id="tablePopover" class="absolute left-0 top-full z-30 mt-2 hidden w-60 rounded-2xl bg-white p-4 shadow-xl ring-1 ring-slate-200">
+                            <p class="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-400">Tabelle einfügen</p>
+                            <div class="mb-3 grid grid-cols-2 gap-2">
+                                <label class="flex flex-col gap-1 text-xs text-slate-500">
+                                    Spalten
+                                    <input type="number" id="tableCols" value="3" min="1" max="10"
+                                        class="rounded-lg border border-slate-200 px-2 py-1.5 text-sm outline-none focus:border-blue-500">
+                                </label>
+                                <label class="flex flex-col gap-1 text-xs text-slate-500">
+                                    Zeilen
+                                    <input type="number" id="tableRows" value="2" min="1" max="20"
+                                        class="rounded-lg border border-slate-200 px-2 py-1.5 text-sm outline-none focus:border-blue-500">
+                                </label>
+                            </div>
+                            <button type="button" id="tableInsert"
+                                class="w-full rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-700">
+                                Einfügen
+                            </button>
+                        </div>
+                    </div>
+                    <?php endif; ?>
+
                     <button
                         type="button"
                         id="togglePreview"
@@ -157,7 +186,7 @@ HTML;
                             placeholder="Schreibe hier Markdown ..."
                             spellcheck="false"
                             <?= $localStorageKey !== null ? 'data-storage-key="' . htmlspecialchars($localStorageKey, ENT_QUOTES, 'UTF-8') . '"' : '' ?>
-                            <?= $fieldId !== null ? 'data-field-id="' . htmlspecialchars($fieldId, ENT_QUOTES, 'UTF-8') . '"' : '' ?>
+                            <?= $fieldId !== null       ? 'data-field-id="'    . htmlspecialchars($fieldId,         ENT_QUOTES, 'UTF-8') . '"' : '' ?>
                         ></textarea>
 
                         <div id="stats" class="border-t border-slate-100 px-5 py-3 text-xs text-slate-500">
@@ -169,7 +198,6 @@ HTML;
                         <div class="border-b border-slate-100 px-5 py-3">
                             <h2 class="text-sm font-semibold uppercase tracking-wide text-slate-500">Vorschau</h2>
                         </div>
-
                         <article id="preview" class="prose prose-slate max-w-none p-8"></article>
                     </section>
                 </div>
@@ -184,7 +212,8 @@ HTML;
         <div
             id="libraryBackdrop"
             class="fixed inset-0 z-50 hidden items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm"
-            data-library="<?= htmlspecialchars(json_encode(array_values($libraryDirs), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), ENT_QUOTES, 'UTF-8') ?>"
+            data-library="<?= htmlspecialchars(json_encode($libraryDirs, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), ENT_QUOTES, 'UTF-8') ?>"
+            data-max-upload="<?= htmlspecialchars($maxUpload, ENT_QUOTES, 'UTF-8') ?>"
         >
             <section class="flex max-h-[88vh] w-full max-w-5xl flex-col overflow-hidden rounded-3xl bg-white shadow-2xl">
                 <header class="flex items-center gap-3 border-b border-slate-200 px-5 py-4">
@@ -226,7 +255,10 @@ HTML;
                 </div>
 
                 <footer class="flex items-center gap-3 border-t border-slate-200 bg-slate-50 px-5 py-4">
-                    <span id="librarySelectionCount" class="text-sm text-slate-500">0 Bilder ausgewählt</span>
+                    <div class="flex items-baseline gap-2">
+                        <span id="librarySelectionCount" class="text-sm text-slate-500">0 Bilder ausgewählt</span>
+                        <span id="libraryMaxUpload" class="hidden text-xs text-slate-400"></span>
+                    </div>
 
                     <button
                         type="button"
@@ -252,6 +284,227 @@ HTML;
         return ob_get_clean();
     }
 
+    /**
+     * Kombinierter GET/POST-Handler für Bildbibliothek-Endpunkte.
+     *
+     * GET  → gibt JSON-Array der Bilder zurück
+     * POST → speichert hochgeladene Datei, gibt Bild-Objekt zurück
+     *
+     * Nutzung (z. B. in /api/images.php):
+     *   MarkdownEditor::handleRequest(
+     *       fsDirectory: __DIR__ . '/../../uploads/images',
+     *       webPath:     '/uploads/images'
+     *   );
+     *
+     * @param string $fsDirectory Absoluter Dateisystempfad zum Bildordner
+     * @param string $webPath     Web-URL-Präfix für Bild-src-Attribute
+     * @param array{types?: list<string>, maxSize?: int, listExtensions?: list<string>} $options
+     *   - types:          Erlaubte MIME-Types beim Upload (Standard: gängige Bildformate)
+     *   - maxSize:        Max. Dateigröße in Bytes (Standard: PHP upload_max_filesize)
+     *   - listExtensions: Dateierweiterungen die gelistet werden (Standard: Bildformate).
+     *                     Rekursive Suche wird per ?recursive=1 vom Client aktiviert.
+     */
+    public static function handleRequest(
+        string $fsDirectory,
+        string $webPath,
+        array  $options = [],
+    ): never {
+        header('Content-Type: application/json; charset=utf-8');
+        header('X-Content-Type-Options: nosniff');
+
+        try {
+            match ($_SERVER['REQUEST_METHOD'] ?? 'GET') {
+                'POST'    => self::handleUploadRequest($fsDirectory, $webPath, $options),
+                'GET'     => self::handleListRequest($fsDirectory, $webPath, $options),
+                default   => self::jsonError(405, 'Method not allowed'),
+            };
+        } catch (\Throwable $e) {
+            self::jsonError(500, $e->getMessage());
+        }
+
+        exit;
+    }
+
+    // ── Private helpers ──────────────────────────────────────────────────────
+
+    private static function handleListRequest(string $fsDir, string $webPath, array $options = []): void
+    {
+        if (!is_dir($fsDir)) {
+            self::jsonError(404, 'Verzeichnis existiert nicht.');
+            return;
+        }
+
+        $imageExts = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'avif', 'svg'];
+        $exts      = array_map('strtolower', $options['listExtensions'] ?? $imageExts);
+        $recursive = !empty($_GET['recursive']);
+        $files     = [];
+        $fsDir     = rtrim($fsDir, '/\\');
+
+        if ($recursive) {
+            $iterator = new \RecursiveIteratorIterator(
+                new \RecursiveDirectoryIterator($fsDir, \FilesystemIterator::SKIP_DOTS),
+                \RecursiveIteratorIterator::LEAVES_ONLY
+            );
+            foreach ($iterator as $file) {
+                $ext = strtolower($file->getExtension());
+                if (!in_array($ext, $exts, true)) continue;
+
+                $rel   = str_replace(DIRECTORY_SEPARATOR, '/', substr($file->getPathname(), strlen($fsDir)));
+                $isImg = in_array($ext, $imageExts, true);
+                $entry = [
+                    'src'   => rtrim($webPath, '/') . $rel,
+                    'name'  => $file->getFilename(),
+                    'type'  => $isImg ? 'image' : 'file',
+                    'mtime' => $file->getMTime(),
+                ];
+                if ($isImg) $entry += self::imageSize($file->getPathname());
+                $files[] = $entry;
+            }
+        } else {
+            $pattern = $fsDir . DIRECTORY_SEPARATOR . '*.{' . implode(',', $exts) . '}';
+            foreach (glob($pattern, GLOB_BRACE) ?: [] as $path) {
+                $ext   = strtolower(pathinfo($path, PATHINFO_EXTENSION));
+                $isImg = in_array($ext, $imageExts, true);
+                $entry = [
+                    'src'   => rtrim($webPath, '/') . '/' . basename($path),
+                    'name'  => basename($path),
+                    'type'  => $isImg ? 'image' : 'file',
+                    'mtime' => filemtime($path),
+                ];
+                if ($isImg) $entry += self::imageSize($path);
+                $files[] = $entry;
+            }
+        }
+
+        usort($files, static fn($a, $b) => $b['mtime'] <=> $a['mtime']);
+        echo json_encode(array_map(static fn($f) => array_diff_key($f, ['mtime' => 0]), $files));
+    }
+
+    private static function imageSize(string $path): array
+    {
+        [$w, $h] = @getimagesize($path) ?: [null, null];
+        return ['width' => $w, 'height' => $h];
+    }
+
+    private static function handleUploadRequest(string $fsDir, string $webPath, array $options): void
+    {
+        if (empty($_FILES['file'])) {
+            self::jsonError(400, 'Keine Datei empfangen.');
+            return;
+        }
+
+        $file = $_FILES['file'];
+
+        if ($file['error'] !== UPLOAD_ERR_OK) {
+            self::jsonError(400, 'Upload-Fehler (Code ' . $file['error'] . ').');
+            return;
+        }
+
+        // MIME-Typ prüfen
+        $allowed  = $options['types'] ?? ['image/jpeg','image/png','image/gif','image/webp','image/avif'];
+        $finfo    = new \finfo(FILEINFO_MIME_TYPE);
+        $mimeType = $finfo->file($file['tmp_name']);
+
+        if (!in_array($mimeType, $allowed, true)) {
+            self::jsonError(415, 'Ungültiger Dateityp: ' . $mimeType);
+            return;
+        }
+
+        // Größe prüfen
+        $maxBytes = $options['maxSize'] ?? self::iniSizeToBytes(ini_get('upload_max_filesize'));
+        if ($file['size'] > $maxBytes) {
+            self::jsonError(413, 'Datei überschreitet das Limit.');
+            return;
+        }
+
+        // Verzeichnis anlegen
+        if (!is_dir($fsDir) && !mkdir($fsDir, 0755, true)) {
+            self::jsonError(500, 'Verzeichnis konnte nicht erstellt werden.');
+            return;
+        }
+
+        // Dateiname bereinigen
+        $ext      = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+        $stem     = preg_replace('/[^a-zA-Z0-9_-]+/', '-', pathinfo($file['name'], PATHINFO_FILENAME));
+        $filename = trim($stem, '-') . '_' . substr(uniqid(), -6) . '.' . $ext;
+        $target   = rtrim($fsDir, '/\\') . DIRECTORY_SEPARATOR . $filename;
+
+        if (!move_uploaded_file($file['tmp_name'], $target)) {
+            self::jsonError(500, 'Datei konnte nicht gespeichert werden.');
+            return;
+        }
+
+        [$width, $height] = @getimagesize($target) ?: [null, null];
+
+        echo json_encode([
+            'src'    => rtrim($webPath, '/') . '/' . $filename,
+            'name'   => $filename,
+            'width'  => $width,
+            'height' => $height,
+        ]);
+    }
+
+    private static function resolveLibraryPaths(array $dirs, string $callerFile): array
+    {
+        if (empty($dirs)) return [];
+
+        $callerDir = dirname($callerFile);
+        $docRoot   = rtrim(
+            str_replace(DIRECTORY_SEPARATOR, '/', realpath($_SERVER['DOCUMENT_ROOT'] ?? '') ?: ''),
+            '/'
+        );
+
+        return array_values(array_map(function (array $dir) use ($callerDir, $docRoot): array {
+            $path = trim($dir['path'] ?? '');
+
+            // Absoluter Web-Pfad oder URL → unverändert lassen
+            if ($path === '' || str_starts_with($path, '/') || preg_match('#^https?://#', $path)) {
+                return $dir;
+            }
+
+            // Relativen Pfad vom Caller-Verzeichnis auflösen
+            $abs = realpath($callerDir . DIRECTORY_SEPARATOR . $path);
+            if ($abs === false) return $dir;
+
+            $abs = str_replace(DIRECTORY_SEPARATOR, '/', $abs);
+
+            // In Web-Pfad umwandeln
+            if ($docRoot !== '' && str_starts_with($abs, $docRoot)) {
+                $dir['path'] = '/' . ltrim(substr($abs, strlen($docRoot)), '/');
+            }
+
+            return $dir;
+        }, $dirs));
+    }
+
+    private static function maxUploadSize(): string
+    {
+        $upload = ini_get('upload_max_filesize') ?: '2M';
+        $post   = ini_get('post_max_size')       ?: '8M';
+
+        return self::iniSizeToBytes($upload) <= self::iniSizeToBytes($post) ? $upload : $post;
+    }
+
+    private static function iniSizeToBytes(string $val): int
+    {
+        $val  = trim($val);
+        $unit = strtolower(substr($val, -1));
+        $n    = (int) $val;
+
+        return match ($unit) {
+            'g'     => $n * 1_073_741_824,
+            'm'     => $n * 1_048_576,
+            'k'     => $n * 1_024,
+            default => $n,
+        };
+    }
+
+    private static function jsonError(int $status, string $message): void
+    {
+        http_response_code($status);
+        echo json_encode(['error' => $message]);
+    }
+
     public static function renderFoot(): string
     {
         $publicPath = self::detectPublicPath();
@@ -265,23 +518,15 @@ HTML;
     private static function detectPublicPath(): string
     {
         $publicDir = realpath(__DIR__ . '/../public');
-
-        if ($publicDir === false) {
-            return '';
-        }
+        if ($publicDir === false) return '';
 
         $documentRoot = realpath($_SERVER['DOCUMENT_ROOT'] ?? '');
+        if ($documentRoot === false) return '';
 
-        if ($documentRoot === false) {
-            return '';
-        }
-
-        $publicDir = str_replace(DIRECTORY_SEPARATOR, '/', $publicDir);
+        $publicDir    = str_replace(DIRECTORY_SEPARATOR, '/', $publicDir);
         $documentRoot = str_replace(DIRECTORY_SEPARATOR, '/', $documentRoot);
 
-        if (!str_starts_with($publicDir, $documentRoot)) {
-            return '';
-        }
+        if (!str_starts_with($publicDir, $documentRoot)) return '';
 
         return rtrim(substr($publicDir, strlen($documentRoot)), '/');
     }

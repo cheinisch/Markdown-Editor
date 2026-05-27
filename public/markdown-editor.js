@@ -88,11 +88,11 @@
     function insertImage() {
         if (!selectedSrcs.length) return;
 
-        const start = editor.selectionStart;
-        const end   = editor.selectionEnd;
-        const text  = selectedSrcs.map(src => {
-            const name = src.split('/').pop().replace(/\.[^.]+$/, '');
-            return `![${name}](${src})`;
+        const text = selectedSrcs.map(({ src, name, type }) => {
+            const label = name || src.split('/').pop();
+            return (type === 'image' || IMAGE_EXTS.has(src.split('.').pop().toLowerCase()))
+                ? `![${label}](${src})`
+                : `[${label}](${src})`;
         }).join('\n');
 
         replaceSelection(text, start, end, 'end');
@@ -225,6 +225,7 @@
     const libraryDropOverlay = document.getElementById('libraryDropOverlay');
     const libraryFileInput   = document.getElementById('libraryFileInput');
     const libraryCountEl     = document.getElementById('librarySelectionCount');
+    const libraryMaxUploadEl = document.getElementById('libraryMaxUpload');
     const librarySearchEl    = document.getElementById('librarySearch');
     const insertImageBtn     = document.querySelector('[data-action="insert-image"]');
 
@@ -232,6 +233,10 @@
         try { return JSON.parse(libraryBackdrop?.dataset.library || '[]'); }
         catch { return []; }
     })();
+
+    const maxUploadLabel = libraryBackdrop?.dataset.maxUpload
+        ? `· Max. ${libraryBackdrop.dataset.maxUpload} pro Datei`
+        : null;
 
     let activeDir      = null;
     let allImages      = [];
@@ -281,14 +286,32 @@
         updateInsertBtn();
         setupDropZone(dir);
 
+        // Max-Upload-Größe im Footer anzeigen
+        if (libraryMaxUploadEl) {
+            if (dir.upload && maxUploadLabel) {
+                libraryMaxUploadEl.textContent = maxUploadLabel;
+                libraryMaxUploadEl.classList.remove('hidden');
+            } else {
+                libraryMaxUploadEl.classList.add('hidden');
+            }
+        }
+
         if (!libraryGrid) return;
         libraryGrid.innerHTML = `
             <div class="col-span-full flex items-center justify-center py-16 text-slate-400 text-sm">
-                Lade Bilder …
+                Lade …
             </div>`;
 
+        const url = dir.recursive
+            ? dir.path + (dir.path.includes('?') ? '&' : '?') + 'recursive=1'
+            : dir.path;
+
         try {
-            const res = await fetch(dir.path, { headers: { Accept: 'application/json' } });
+            const res = await fetch(url, { headers: { Accept: 'application/json' } });
+            if (res.status === 404) {
+                setGridMessage('Verzeichnis existiert nicht.', 'text-red-400');
+                return;
+            }
             if (!res.ok) throw new Error(res.statusText);
             allImages = await res.json();
             renderGrid(allImages);
@@ -312,6 +335,12 @@
         return label;
     }
 
+    const IMAGE_EXTS = new Set(['jpg','jpeg','png','gif','webp','avif','svg']);
+
+    function isImageFile(file) {
+        return file.type === 'image' || IMAGE_EXTS.has(file.src.split('.').pop().toLowerCase());
+    }
+
     function renderGrid(images) {
         if (!libraryGrid) return;
         libraryGrid.innerHTML = '';
@@ -324,38 +353,45 @@
             const msg = document.createElement('div');
             msg.className = 'col-span-full flex items-center justify-center py-8 text-slate-400 text-sm text-center';
             msg.textContent = activeDir?.upload
-                ? 'Noch keine Bilder. Hochladen oder hierher ziehen.'
-                : 'Keine Bilder in diesem Verzeichnis.';
+                ? 'Noch keine Dateien. Hochladen oder hierher ziehen.'
+                : 'Keine Dateien in diesem Verzeichnis.';
             libraryGrid.appendChild(msg);
             return;
         }
 
-        images.forEach(image => {
+        images.forEach(file => {
             const btn = document.createElement('button');
             btn.type = 'button';
-            btn.dataset.src = image.src;
+            btn.dataset.src = file.src;
             btn.className = 'overflow-hidden rounded-2xl border border-slate-200 bg-white text-left shadow-sm transition-all hover:border-blue-300';
 
+            // Thumbnail
             const thumb = document.createElement('div');
-            thumb.className = 'aspect-video overflow-hidden bg-slate-100';
-            const img = document.createElement('img');
-            img.src = image.src;
-            img.alt = image.name;
-            img.className = 'h-full w-full object-cover';
-            thumb.appendChild(img);
+            thumb.className = 'aspect-video overflow-hidden bg-slate-100 flex items-center justify-center';
+
+            if (isImageFile(file)) {
+                const img = document.createElement('img');
+                img.src = file.src;
+                img.alt = file.name;
+                img.className = 'h-full w-full object-cover';
+                thumb.appendChild(img);
+            } else {
+                const ext = file.src.split('.').pop().toUpperCase();
+                thumb.innerHTML = `<span class="text-xl font-mono font-bold text-slate-300">.${ext}</span>`;
+            }
 
             const info = document.createElement('div');
             info.className = 'p-3';
-            info.innerHTML = `<p class="truncate text-sm font-semibold">${image.name}</p>`
-                + (image.width ? `<p class="text-xs text-slate-500">${image.width} × ${image.height}</p>` : '');
+            info.innerHTML = `<p class="truncate text-sm font-semibold">${file.name}</p>`
+                + (file.width ? `<p class="text-xs text-slate-500">${file.width} × ${file.height}</p>` : '');
 
             btn.appendChild(thumb);
             btn.appendChild(info);
 
             btn.addEventListener('click', () => {
-                const idx = selectedSrcs.indexOf(image.src);
+                const idx = selectedSrcs.findIndex(s => s.src === file.src);
                 if (idx === -1) {
-                    selectedSrcs.push(image.src);
+                    selectedSrcs.push({ src: file.src, name: file.name, type: file.type });
                     btn.classList.add('border-2', 'border-blue-500');
                     btn.classList.remove('border', 'border-slate-200');
                 } else {
@@ -371,8 +407,7 @@
     }
 
     function setGridEmpty(message) {
-        if (!libraryGrid) return;
-        libraryGrid.innerHTML = `<div class="col-span-full flex items-center justify-center py-16 text-slate-400 text-sm text-center">${message}</div>`;
+        setGridMessage(message);
     }
 
     function updateInsertBtn() {
@@ -462,18 +497,52 @@
     }
 
     async function uploadFiles(files, dir) {
-        setGridEmpty(`Lade ${files.length} Datei${files.length > 1 ? 'en' : ''} hoch …`);
+        if (!libraryGrid) return;
 
-        const results = await Promise.allSettled(files.map(file => {
-            const fd = new FormData();
-            fd.append('file', file);
-            return fetch(dir.path, { method: 'POST', body: fd });
-        }));
+        // Dateigröße clientseitig vorab prüfen
+        const maxBytes = parseIniSize(libraryBackdrop?.dataset.maxUpload || '');
+        const oversized = maxBytes > 0 ? files.filter(f => f.size > maxBytes) : [];
 
-        const failed = results.filter(r => r.status === 'rejected' || !r.value?.ok).length;
-        if (failed) console.warn(`${failed} Upload(s) fehlgeschlagen.`);
+        if (oversized.length) {
+            const names = oversized.map(f => f.name).join(', ');
+            setGridMessage(`⚠ Zu groß (${libraryBackdrop.dataset.maxUpload}): ${names}`, 'text-amber-500');
+            await new Promise(r => setTimeout(r, 2500));
+            files = files.filter(f => f.size <= maxBytes);
+            if (!files.length) { await loadImages(dir); return; }
+        }
+
+        // Fortschrittsanzeige
+        setGridMessage(`Lade ${files.length} Datei${files.length > 1 ? 'en' : ''} hoch …`, 'text-slate-400');
+
+        const results = await Promise.allSettled(
+            files.map(file => {
+                const fd = new FormData();
+                fd.append('file', file);
+                return fetch(dir.path, { method: 'POST', body: fd })
+                    .then(r => r.ok ? r.json() : r.json().then(d => Promise.reject(d.error || r.statusText)));
+            })
+        );
+
+        const failed = results.filter(r => r.status === 'rejected');
+        if (failed.length) {
+            const msg = failed.map(r => r.reason).join(' · ');
+            setGridMessage(`⚠ ${failed.length} Fehler: ${msg}`, 'text-red-500');
+            await new Promise(r => setTimeout(r, 3000));
+        }
 
         await loadImages(dir);
+    }
+
+    function parseIniSize(str) {
+        if (!str) return 0;
+        const n = parseFloat(str);
+        const u = str.slice(-1).toLowerCase();
+        return u === 'g' ? n * 1073741824 : u === 'm' ? n * 1048576 : u === 'k' ? n * 1024 : n;
+    }
+
+    function setGridMessage(text, colorClass = 'text-slate-400') {
+        if (!libraryGrid) return;
+        libraryGrid.innerHTML = `<div class="col-span-full flex items-center justify-center py-16 text-sm text-center ${colorClass}">${text}</div>`;
     }
 
     if (openLibraryBtn) openLibraryBtn.addEventListener('click', showLibrary);
@@ -507,6 +576,51 @@
 
     editor.addEventListener('keydown', handleListContinuation);
     editor.addEventListener('input', updatePreview);
+
+    // ── Tabelle ──────────────────────────────────────────────────────────────
+
+    const tableBtn      = document.getElementById('btn-table');
+    const tablePopover  = document.getElementById('tablePopover');
+    const tableInsert   = document.getElementById('tableInsert');
+    const tableColsInput = document.getElementById('tableCols');
+    const tableRowsInput = document.getElementById('tableRows');
+
+    if (tableBtn && tablePopover) {
+        tableBtn.addEventListener('click', e => {
+            e.stopPropagation();
+            tablePopover.classList.toggle('hidden');
+            if (!tablePopover.classList.contains('hidden')) tableColsInput?.focus();
+        });
+
+        document.addEventListener('click', e => {
+            if (!tablePopover.contains(e.target) && e.target !== tableBtn) {
+                tablePopover.classList.add('hidden');
+            }
+        });
+
+        document.addEventListener('keydown', e => {
+            if (e.key === 'Escape') tablePopover.classList.add('hidden');
+        });
+    }
+
+    if (tableInsert) {
+        tableInsert.addEventListener('click', () => {
+            const cols = Math.max(1, Math.min(10, parseInt(tableColsInput?.value) || 3));
+            const rows = Math.max(1, Math.min(20, parseInt(tableRowsInput?.value) || 2));
+
+            const header    = '| ' + Array.from({ length: cols }, (_, i) => `Spalte ${i + 1}`).join(' | ') + ' |';
+            const separator = '| ' + Array(cols).fill('--------').join(' | ') + ' |';
+            const row       = '| ' + Array(cols).fill('        ').join(' | ') + ' |';
+            const table     = [header, separator, ...Array(rows).fill(row)].join('\n');
+
+            const start  = editor.selectionStart;
+            const before = start > 0 && editor.value[start - 1] !== '\n' ? '\n\n' : '';
+
+            replaceSelection(before + table + '\n', start, start, 'end');
+            tablePopover.classList.add('hidden');
+            editor.focus();
+        });
+    }
 
     // ── localStorage ────────────────────────────────────────────────────────
 
