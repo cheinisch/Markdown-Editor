@@ -5,6 +5,20 @@ namespace cheinisch\MarkdownEditor;
 
 final class MarkdownEditor
 {
+    /**
+     * Alle verfügbaren Button-Schlüssel in ihrer Standard-Reihenfolge.
+     */
+    private const ALL_BUTTONS = [
+        'bold', 'italic', 'underline',
+        'h1', 'list', 'quote', 'code', 'link',
+        'library',
+    ];
+
+    /** Gruppe 1 (Formatierung): Trennlinie wird nur gerendert, wenn mind. ein Button
+     *  aus Gruppe 1 UND mind. einer aus Gruppe 2 sichtbar ist. */
+    private const GROUP1 = ['bold', 'italic', 'underline'];
+    private const GROUP2 = ['h1', 'list', 'quote', 'code', 'link'];
+
     public static function renderHead(): string
     {
         return <<<'HTML'
@@ -14,24 +28,102 @@ final class MarkdownEditor
 HTML;
     }
 
-    public static function render(): string
+    /**
+     * Rendert den Markdown-Editor.
+     *
+     * @param array{buttons?: list<string>, localStorage?: bool|string} $options
+     *   - buttons:      Welche Buttons angezeigt werden sollen.
+     *                   Mögliche Werte: 'bold', 'italic', 'underline',
+     *                   'h1', 'list', 'quote', 'code', 'link', 'library'.
+     *                   Standard: alle Buttons.
+     *   - localStorage: Inhalt automatisch in localStorage speichern.
+     *                   true   → Default-Key 'markdown-editor-content'
+     *                   string → Eigener Key
+     *                   false  → deaktiviert (Standard)
+     *   - field:        ID eines versteckten <textarea>-Feldes unterhalb des Editors.
+     *                   Der Inhalt wird bei jeder Eingabe synchronisiert und beim
+     *                   Laden der Seite von dort wiederhergestellt (z. B. für Formulare).
+     *
+     * Beispiele:
+     *   <?= MarkdownEditor::render() ?>
+     *   <?= MarkdownEditor::render(['buttons' => ['bold', 'italic', 'link']]) ?>
+     *   <?= MarkdownEditor::render(['localStorage' => true]) ?>
+     *   <?= MarkdownEditor::render(['localStorage' => 'blog-editor']) ?>
+     *   <?= MarkdownEditor::render(['field' => 'post_content']) ?>
+     *   <?= MarkdownEditor::render(['library' => [
+     *       ['name' => 'Alle Bilder', 'path' => '/api/images'],
+     *       ['name' => 'Blog',        'path' => '/api/images/blog', 'upload' => true],
+     *       ['name' => 'Produkte',    'path' => '/api/images/products'],
+     *   ]]) ?>
+     *
+     * Library-Endpunkt erwartet:
+     *   GET  {path}  →  JSON: [{ src, name, width?, height? }, ...]
+     *   POST {path}  →  FormData mit 'file' (nur bei upload: true)
+     */
+    public static function render(array $options = []): string
     {
-        return <<<'HTML'
+        $visible = array_flip($options['buttons'] ?? self::ALL_BUTTONS);
+
+        $localStorageKey = match(true) {
+            isset($options['localStorage']) && is_string($options['localStorage']) => $options['localStorage'],
+            isset($options['localStorage']) && $options['localStorage'] === true   => 'markdown-editor-content',
+            default => null,
+        };
+
+        $fieldId = isset($options['field']) && is_string($options['field']) && $options['field'] !== ''
+            ? $options['field']
+            : null;
+
+        $libraryDirs = $options['library'] ?? [];
+
+        $show = static fn(string $key): bool => isset($visible[$key]);
+
+        $showSeparator = (
+            array_filter(self::GROUP1, $show) !== [] &&
+            array_filter(self::GROUP2, $show) !== []
+        );
+
+        ob_start(); ?>
         <div class="mx-auto max-w-7xl p-6">
             <section class="overflow-hidden rounded-3xl bg-white shadow-lg ring-1 ring-slate-200">
 
                 <div class="flex flex-wrap items-center gap-2 border-b border-slate-200 bg-slate-50 px-4 py-3">
-                    <button type="button" data-action="bold" class="rounded-lg px-3 py-2 text-sm font-bold hover:bg-white">B</button>
-                    <button type="button" data-action="italic" class="rounded-lg px-3 py-2 text-sm italic hover:bg-white">I</button>
-                    <button type="button" data-action="underline" class="rounded-lg px-3 py-2 text-sm underline hover:bg-white">U</button>
 
+                    <?php if ($show('bold')): ?>
+                    <button type="button" id="btn-bold" data-action="bold" class="rounded-lg px-3 py-2 text-sm font-bold hover:bg-white">B</button>
+                    <?php endif; ?>
+
+                    <?php if ($show('italic')): ?>
+                    <button type="button" id="btn-italic" data-action="italic" class="rounded-lg px-3 py-2 text-sm italic hover:bg-white">I</button>
+                    <?php endif; ?>
+
+                    <?php if ($show('underline')): ?>
+                    <button type="button" id="btn-underline" data-action="underline" class="rounded-lg px-3 py-2 text-sm underline hover:bg-white">U</button>
+                    <?php endif; ?>
+
+                    <?php if ($showSeparator): ?>
                     <span class="mx-1 h-6 w-px bg-slate-300"></span>
+                    <?php endif; ?>
 
-                    <button type="button" data-action="h1" class="rounded-lg px-3 py-2 text-sm hover:bg-white">H1</button>
-                    <button type="button" data-action="list" class="rounded-lg px-3 py-2 text-sm hover:bg-white">Liste</button>
-                    <button type="button" data-action="quote" class="rounded-lg px-3 py-2 text-sm hover:bg-white">Zitat</button>
-                    <button type="button" data-action="code" class="rounded-lg px-3 py-2 text-sm hover:bg-white">Code</button>
-                    <button type="button" data-action="link" class="rounded-lg px-3 py-2 text-sm hover:bg-white">Link</button>
+                    <?php if ($show('h1')): ?>
+                    <button type="button" id="btn-h1" data-action="h1" class="rounded-lg px-3 py-2 text-sm hover:bg-white">H1</button>
+                    <?php endif; ?>
+
+                    <?php if ($show('list')): ?>
+                    <button type="button" id="btn-list" data-action="list" class="rounded-lg px-3 py-2 text-sm hover:bg-white">Liste</button>
+                    <?php endif; ?>
+
+                    <?php if ($show('quote')): ?>
+                    <button type="button" id="btn-quote" data-action="quote" class="rounded-lg px-3 py-2 text-sm hover:bg-white">Zitat</button>
+                    <?php endif; ?>
+
+                    <?php if ($show('code')): ?>
+                    <button type="button" id="btn-code" data-action="code" class="rounded-lg px-3 py-2 text-sm hover:bg-white">Code</button>
+                    <?php endif; ?>
+
+                    <?php if ($show('link')): ?>
+                    <button type="button" id="btn-link" data-action="link" class="rounded-lg px-3 py-2 text-sm hover:bg-white">Link</button>
+                    <?php endif; ?>
 
                     <button
                         type="button"
@@ -41,6 +133,7 @@ HTML;
                         Vorschau anzeigen
                     </button>
 
+                    <?php if ($show('library')): ?>
                     <button
                         type="button"
                         id="openLibrary"
@@ -48,6 +141,8 @@ HTML;
                     >
                         Bibliothek
                     </button>
+                    <?php endif; ?>
+
                 </div>
 
                 <div id="editorLayout" class="grid min-h-[700px] grid-cols-1 lg:grid-cols-1">
@@ -61,6 +156,8 @@ HTML;
                             class="min-h-[620px] resize-y overflow-auto p-5 font-mono text-sm leading-7 outline-none"
                             placeholder="Schreibe hier Markdown ..."
                             spellcheck="false"
+                            <?= $localStorageKey !== null ? 'data-storage-key="' . htmlspecialchars($localStorageKey, ENT_QUOTES, 'UTF-8') . '"' : '' ?>
+                            <?= $fieldId !== null ? 'data-field-id="' . htmlspecialchars($fieldId, ENT_QUOTES, 'UTF-8') . '"' : '' ?>
                         ></textarea>
 
                         <div id="stats" class="border-t border-slate-100 px-5 py-3 text-xs text-slate-500">
@@ -73,16 +170,22 @@ HTML;
                             <h2 class="text-sm font-semibold uppercase tracking-wide text-slate-500">Vorschau</h2>
                         </div>
 
-                        <article
-                            id="preview"
-                            class="prose prose-slate max-w-none p-8"
-                        ></article>
+                        <article id="preview" class="prose prose-slate max-w-none p-8"></article>
                     </section>
                 </div>
             </section>
         </div>
 
-        <div id="libraryBackdrop" class="fixed inset-0 z-50 hidden items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
+        <?php if ($fieldId !== null): ?>
+        <textarea data-md-sync hidden></textarea>
+        <?php endif; ?>
+
+        <?php if ($show('library')): ?>
+        <div
+            id="libraryBackdrop"
+            class="fixed inset-0 z-50 hidden items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm"
+            data-library="<?= htmlspecialchars(json_encode(array_values($libraryDirs), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), ENT_QUOTES, 'UTF-8') ?>"
+        >
             <section class="flex max-h-[88vh] w-full max-w-5xl flex-col overflow-hidden rounded-3xl bg-white shadow-2xl">
                 <header class="flex items-center gap-3 border-b border-slate-200 px-5 py-4">
                     <div>
@@ -91,6 +194,7 @@ HTML;
                     </div>
 
                     <input
+                        id="librarySearch"
                         class="ml-auto w-64 rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-500"
                         placeholder="Bilder suchen ..."
                     >
@@ -106,50 +210,23 @@ HTML;
 
                 <div class="grid min-h-[460px] flex-1 grid-cols-1 overflow-hidden md:grid-cols-[220px_1fr]">
                     <aside class="border-b border-slate-200 bg-slate-50 p-4 md:border-b-0 md:border-r">
-                        <nav class="space-y-1 text-sm">
-                            <button type="button" class="w-full rounded-xl bg-white px-3 py-2 text-left font-medium shadow-sm ring-1 ring-slate-200">
-                                Alle Bilder
-                            </button>
-
-                            <button type="button" class="w-full rounded-xl px-3 py-2 text-left text-slate-600 hover:bg-white">
-                                Uploads
-                            </button>
-
-                            <button type="button" class="w-full rounded-xl px-3 py-2 text-left text-slate-600 hover:bg-white">
-                                Blog
-                            </button>
-                        </nav>
+                        <nav id="libraryNav" class="space-y-1 text-sm"></nav>
                     </aside>
 
-                    <div class="overflow-y-auto p-5">
-                        <div class="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
-                            <button
-                                type="button"
-                                class="overflow-hidden rounded-2xl border-2 border-blue-500 bg-white text-left shadow-sm"
-                            >
-                                <div class="aspect-video bg-gradient-to-br from-blue-100 to-slate-200"></div>
-                                <div class="p-3">
-                                    <p class="truncate text-sm font-semibold">hero-image.jpg</p>
-                                    <p class="text-xs text-slate-500">1280 × 720</p>
-                                </div>
-                            </button>
-
-                            <button
-                                type="button"
-                                class="overflow-hidden rounded-2xl border border-slate-200 bg-white text-left shadow-sm hover:border-blue-300"
-                            >
-                                <div class="aspect-video bg-gradient-to-br from-emerald-100 to-slate-200"></div>
-                                <div class="p-3">
-                                    <p class="truncate text-sm font-semibold">header.png</p>
-                                    <p class="text-xs text-slate-500">1024 × 768</p>
-                                </div>
-                            </button>
+                    <div id="libraryGridWrapper" class="relative overflow-y-auto p-5">
+                        <div id="libraryGrid" class="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4"></div>
+                        <input id="libraryFileInput" type="file" accept="image/*" multiple class="sr-only">
+                        <div id="libraryDropOverlay" class="pointer-events-none absolute inset-0 hidden items-center justify-center rounded-2xl border-2 border-dashed border-blue-400 bg-blue-50/80">
+                            <div class="text-center">
+                                <p class="text-base font-semibold text-blue-600">Bilder hier ablegen</p>
+                                <p class="text-sm text-blue-400">JPG, PNG, GIF, WebP</p>
+                            </div>
                         </div>
                     </div>
                 </div>
 
                 <footer class="flex items-center gap-3 border-t border-slate-200 bg-slate-50 px-5 py-4">
-                    <span class="text-sm text-slate-500">1 Bild ausgewählt</span>
+                    <span id="librarySelectionCount" class="text-sm text-slate-500">0 Bilder ausgewählt</span>
 
                     <button
                         type="button"
@@ -162,14 +239,17 @@ HTML;
                     <button
                         type="button"
                         data-action="insert-image"
-                        class="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+                        class="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-40"
+                        disabled
                     >
                         Einfügen
                     </button>
                 </footer>
             </section>
         </div>
-        HTML;
+        <?php endif; ?>
+        <?php
+        return ob_get_clean();
     }
 
     public static function renderFoot(): string
