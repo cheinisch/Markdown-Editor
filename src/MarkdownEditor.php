@@ -6,21 +6,16 @@ namespace cheinisch\MarkdownEditor;
 final class MarkdownEditor
 {
     /**
-     * Alle konfigurierbaren Buttons mit ihren Defaults (true = sichtbar).
+     * Alle bekannten Button-Namen.
+     * Reihenfolge bestimmt die Darstellung in der Formatbar.
      *
-     * Nicht in dieser Liste: „Headline"-Dropdown und der Vorschau-Toggle –
+     * Nicht enthalten: „Headline"-Dropdown und Vorschau-Toggle –
      * diese sind immer vorhanden und nicht konfigurierbar.
      */
-    private const BUTTON_DEFAULTS = [
-        'bold'      => true,
-        'underline' => true,
-        'italic'    => true,
-        'list'      => true,
-        'image'     => true,
-        'link'      => true,
-        'table'     => true,
-        'code'      => true,
-        'quote'     => true,
+    private const KNOWN_BUTTONS = [
+        'bold', 'underline', 'italic',
+        'list', 'quote', 'code', 'table',
+        'link', 'image',
     ];
 
     // ------------------------------------------------------------------ //
@@ -73,34 +68,31 @@ final class MarkdownEditor
      * Editor-Markup – kommt in den <body> dorthin, wo der Editor stehen soll.
      *
      * @param array{
-     *   buttons?: array<string, bool>
+     *   buttons?: list<string>
      * } $opts
      *
      * Beispiele
      * ---------
-     * Alle Buttons aktiv (Standard):
+     * Alle Buttons anzeigen (Key weglassen):
      *   MarkdownEditor::render();
      *
-     * Nur bestimmte Buttons deaktivieren (Rest bleibt true):
-     *   MarkdownEditor::render(['buttons' => ['table' => false, 'image' => false]]);
+     * Nur bestimmte Buttons anzeigen:
+     *   MarkdownEditor::render(['buttons' => ['bold', 'italic', 'link', 'code']]);
      *
-     * Explizite Vollkonfiguration:
-     *   MarkdownEditor::render(['buttons' => [
-     *       'bold'      => true,
-     *       'underline' => false,
-     *       'italic'    => true,
-     *       'list'      => true,
-     *       'image'     => false,
-     *       'link'      => true,
-     *       'table'     => false,
-     *       'code'      => true,
-     *       'quote'     => true,
-     *   ]]);
+     * Verfügbare Button-Namen:
+     *   bold, underline, italic, list, quote, code, table, link, image
+     *
+     * Headline-Dropdown und Vorschau-Toggle sind immer sichtbar.
      */
     public static function render(array $opts = []): string
     {
-        $buttons = self::resolveButtons($opts['buttons'] ?? []);
-        $bar     = self::renderFormatbar($buttons);
+        // buttons-Key nicht gesetzt → alle anzeigen
+        // buttons-Key gesetzt (auch leer) → nur gelistete anzeigen
+        $buttons = array_key_exists('buttons', $opts)
+            ? self::resolveButtons($opts['buttons'])
+            : array_fill_keys(self::KNOWN_BUTTONS, true);
+
+        $bar = self::renderFormatbar($buttons);
 
         return <<<HTML
 <div class="wrap">
@@ -133,20 +125,32 @@ HTML;
     // ------------------------------------------------------------------ //
 
     /**
-     * Merged die übergebene Button-Konfiguration mit den Defaults.
-     * Nicht angegebene Schlüssel behalten ihren Default-Wert (true).
-     * Unbekannte Schlüssel werden stillschweigend ignoriert.
+     * Baut aus der Nutzer-Eingabe eine vollständige Button-Map (name => bool).
      *
-     * @param  array<string, bool> $userButtons
+     * Unterstützte Formate:
+     *   ['bold', 'italic', 'link']           – einfache Liste, nur diese anzeigen
+     *   ['bold' => true, 'italic' => false]  – explizite Key-Bool-Map
+     *   Mischformen sind erlaubt.
+     *
+     * Unbekannte Button-Namen werden stillschweigend ignoriert.
+     *
+     * @param  array<int|string, string|bool> $userButtons
      * @return array<string, bool>
      */
     private static function resolveButtons(array $userButtons): array
     {
-        $resolved = self::BUTTON_DEFAULTS;
+        // Alle auf false – nur explizit gelistete werden aktiviert
+        $resolved = array_fill_keys(self::KNOWN_BUTTONS, false);
 
-        foreach ($userButtons as $key => $enabled) {
-            if (array_key_exists($key, $resolved)) {
-                $resolved[$key] = (bool) $enabled;
+        foreach ($userButtons as $key => $value) {
+            if (is_int($key) && is_string($value)) {
+                // Format: ['bold', 'italic', …]
+                if (array_key_exists($value, $resolved)) {
+                    $resolved[$value] = true;
+                }
+            } elseif (is_string($key) && array_key_exists($key, $resolved)) {
+                // Format: ['bold' => true, 'image' => false, …]
+                $resolved[$key] = (bool) $value;
             }
         }
 
