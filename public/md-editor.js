@@ -35,19 +35,9 @@
     // ------------------------------------------------------------------ //
 
     const DEFAULT_MD = [
-        '# Willkommen 👋',
+        '# Hello',
         '',
-        'Dies ist ein **einfacher Markdown-Editor** mit Live-Vorschau.',
-        '',
-        '- Öffne die Vorschau mit dem Auge-Button rechts',
-        '- Die Ansicht teilt sich bei breiten Screens',
-        '',
-        '**Fett**, *Kursiv*, <u>Unterstrichen</u>, `Code`',
-        '',
-        '> Zitat-Beispiel',
-        '',
-        '## H2-Überschrift',
-        '### H3-Überschrift',
+        'This is a example Content',
     ].join('\n');
 
     // Priorität: Datei-Inhalt (PHP) > localStorage > eingebautes Beispiel
