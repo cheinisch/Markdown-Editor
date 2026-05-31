@@ -48,8 +48,18 @@ HTML;
      *                   sonst legt der Editor sie selbst an.
      *
      *   - library:      Verzeichnisse für die Bildbibliothek.
-     *                   path darf relativ zur einbindenden PHP-Datei sein.
+     *                   Zwei Modi:
+     *
+     *                   a) Eigener Endpoint (path zeigt auf PHP-Datei):
+     *                      ['name' => 'Blog', 'path' => '/api/media/blog']
+     *
+     *                   b) Integrierter Handler (fsPath + kein eigener Endpoint nötig):
+     *                      ['name' => 'Uploads', 'fsPath' => __DIR__ . '/uploads', 'upload' => true]
+     *                      webPath wird automatisch aus dem Document Root ermittelt.
+     *                      Optionale Handler-Optionen per 'handlerOptions' => [...].
+     *
      *                   upload: true → Drag & Drop + Upload-Button aktiv.
+     *                   recursive: true → Unterordner einschließen.
      *
      * Beispiele:
      *   <?= MarkdownEditor::render() ?>
@@ -75,10 +85,54 @@ HTML;
             ? $options['field']
             : null;
 
+        $heightPx = isset($options['height']) && is_numeric($options['height'])
+            ? (int) $options['height']
+            : 700;
+
         // Pfade relativ zur einbindenden Datei auflösen
         $callerFile  = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 1)[0]['file'];
         $libraryDirs = self::resolveLibraryPaths($options['library'] ?? [], $callerFile);
         $maxUpload   = self::maxUploadSize();
+
+        // fsPath-Einträge: Verzeichnisse in Session speichern, path auf Handler umschreiben
+        $hasFsPath = false;
+        foreach ($libraryDirs as &$dir) {
+            if (empty($dir['fsPath'])) continue;
+
+            $hasFsPath  = true;
+            $key        = md5($dir['fsPath']);
+            $dir['_key'] = $key;
+
+            // webPath auto-detektieren wenn nicht angegeben
+            if (empty($dir['webPath'])) {
+                $docRoot = str_replace(DIRECTORY_SEPARATOR, '/', realpath($_SERVER['DOCUMENT_ROOT'] ?? '') ?: '');
+                $abs     = str_replace(DIRECTORY_SEPARATOR, '/', realpath($dir['fsPath']) ?: '');
+                if ($docRoot && str_starts_with($abs, $docRoot)) {
+                    $dir['webPath'] = '/' . ltrim(substr($abs, strlen($docRoot)), '/');
+                }
+            }
+
+            $dir['path'] = self::detectPublicPath() . '/md-handler.php?dir=' . urlencode($key);
+        }
+        unset($dir);
+
+        if ($hasFsPath) {
+            if (session_status() === PHP_SESSION_NONE) session_start();
+            foreach ($libraryDirs as $dir) {
+                if (empty($dir['_key'])) continue;
+                $_SESSION['_md_dirs'][$dir['_key']] = [
+                    'fs'      => $dir['fsPath'],
+                    'web'     => $dir['webPath'] ?? '',
+                    'options' => $dir['handlerOptions'] ?? [],
+                ];
+            }
+        }
+
+        // Interne Keys vor JSON-Encoding entfernen
+        $libraryJson = array_map(static function (array $dir): array {
+            unset($dir['_key'], $dir['fsPath'], $dir['webPath'], $dir['handlerOptions']);
+            return $dir;
+        }, $libraryDirs);
 
         $show = static fn(string $key): bool => isset($visible[$key]);
 
@@ -174,15 +228,15 @@ HTML;
 
                 </div>
 
-                <div id="editorLayout" class="grid min-h-[700px] grid-cols-1 lg:grid-cols-1">
-                    <section class="flex flex-col">
+                <div id="editorLayout" class="grid grid-cols-1 lg:grid-cols-1" style="height:<?= $heightPx ?>px">
+                    <section class="flex min-h-0 flex-col">
                         <div class="border-b border-slate-100 px-5 py-3">
                             <h2 class="text-sm font-semibold uppercase tracking-wide text-slate-500">Editor</h2>
                         </div>
 
                         <textarea
                             id="editor"
-                            class="min-h-[620px] resize-y overflow-auto p-5 font-mono text-sm leading-7 outline-none"
+                            class="flex-1 resize-none overflow-y-auto p-5 font-mono text-sm leading-7 outline-none"
                             placeholder="Schreibe hier Markdown ..."
                             spellcheck="false"
                             <?= $localStorageKey !== null ? 'data-storage-key="' . htmlspecialchars($localStorageKey, ENT_QUOTES, 'UTF-8') . '"' : '' ?>
@@ -194,11 +248,11 @@ HTML;
                         </div>
                     </section>
 
-                    <section id="previewPanel" class="hidden flex-col bg-white">
+                    <section id="previewPanel" class="hidden min-h-0 flex-col bg-white">
                         <div class="border-b border-slate-100 px-5 py-3">
                             <h2 class="text-sm font-semibold uppercase tracking-wide text-slate-500">Vorschau</h2>
                         </div>
-                        <article id="preview" class="prose prose-slate max-w-none p-8"></article>
+                        <article id="preview" class="prose prose-slate max-w-none flex-1 overflow-y-auto p-8"></article>
                     </section>
                 </div>
             </section>
@@ -212,7 +266,7 @@ HTML;
         <div
             id="libraryBackdrop"
             class="fixed inset-0 z-50 hidden items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm"
-            data-library="<?= htmlspecialchars(json_encode($libraryDirs, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), ENT_QUOTES, 'UTF-8') ?>"
+            data-library="<?= htmlspecialchars(json_encode($libraryJson, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), ENT_QUOTES, 'UTF-8') ?>"
             data-max-upload="<?= htmlspecialchars($maxUpload, ENT_QUOTES, 'UTF-8') ?>"
         >
             <section class="flex max-h-[88vh] w-full max-w-5xl flex-col overflow-hidden rounded-3xl bg-white shadow-2xl">
@@ -309,16 +363,21 @@ HTML;
         string $webPath,
         array  $options = [],
     ): never {
+        // Stray Output (Notices, Warnings) abfangen bevor Header gesetzt werden
+        ob_start();
+
         header('Content-Type: application/json; charset=utf-8');
         header('X-Content-Type-Options: nosniff');
 
         try {
+            ob_end_clean(); // Buffer verwerfen, saubere Ausgabe
             match ($_SERVER['REQUEST_METHOD'] ?? 'GET') {
                 'POST'    => self::handleUploadRequest($fsDirectory, $webPath, $options),
                 'GET'     => self::handleListRequest($fsDirectory, $webPath, $options),
                 default   => self::jsonError(405, 'Method not allowed'),
             };
         } catch (\Throwable $e) {
+            ob_end_clean();
             self::jsonError(500, $e->getMessage());
         }
 
@@ -330,7 +389,7 @@ HTML;
     private static function handleListRequest(string $fsDir, string $webPath, array $options = []): void
     {
         if (!is_dir($fsDir)) {
-            self::jsonError(404, 'Verzeichnis existiert nicht.');
+            self::jsonError(404, 'Verzeichnis existiert nicht. (' . $fsDir . ')');
             return;
         }
 
